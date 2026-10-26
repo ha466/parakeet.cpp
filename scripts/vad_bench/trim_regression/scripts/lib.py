@@ -1,4 +1,4 @@
-import os, sys, pickle, json
+import os, sys, json
 import numpy as np, soundfile as sf, jiwer
 sys.path.insert(0, os.path.dirname(__file__)); from common import *; from seg import *; import dec, variants
 MAN = {m["name"]: m for m in manifest()}
@@ -44,8 +44,13 @@ _cache = {}
 def file_errors(det, name, vn):
     """dict unit -> [errors, nref], plus counts S,D,I and events with times. cached on disk."""
     key = (det, name, vn)
-    f = f"{W}/cache/err/{det}/{vn}/{name}.pkl"
-    if os.path.exists(f): return pickle.load(open(f, "rb"))
+    f = f"{W}/cache/err/{det}/{vn}/{name}.json"
+    if os.path.exists(f):
+        with open(f, "r") as fp:
+            data = json.load(fp)
+        data["units"] = {tuple(json.loads(k)): v for k, v in data["units"].items()}
+        data["events"] = [tuple(e) for e in data["events"]]
+        return data
     m = MAN[name]; ref = norm(m["ref"]); segs = segs_for(det, name, vn); hy = hyp(det, name, segs); ev = align(ref, hy)
     uidx = utt_index(m) if m["kind"] == "sinr" else None
     units = {}; sdi = {"S": 0, "D": 0, "I": 0}; events = []
@@ -60,7 +65,17 @@ def file_errors(det, name, vn):
         if rj is not None: units[u][1] += 1
         sdi[kind] += 1; events.append((kind, rj, hj))
     res = dict(units=units, sdi=sdi, events=events, nref=len(ref), nhyp=len(hy), nseg=len(segs))
-    os.makedirs(os.path.dirname(f), exist_ok=True); pickle.dump(res, open(f, "wb"))
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    save_data = dict(
+        units={json.dumps(k): v for k, v in units.items()},
+        sdi=sdi,
+        events=events,
+        nref=len(ref),
+        nhyp=len(hy),
+        nseg=len(segs)
+    )
+    with open(f, "w") as fp:
+        json.dump(save_data, fp)
     return res
 def boot_diff(A, B, B_n=5000, seed=1):
     """A, B: arrays [n_units, 2] (errors, nref) for the same units. Paired bootstrap of WER(B) - WER(A) in percentage points."""
