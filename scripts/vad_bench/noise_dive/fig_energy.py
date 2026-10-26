@@ -1,10 +1,16 @@
 import os
 FUSION=os.environ.get('FUSION_DIR','../fusion')  # scripts/vad_bench/fusion with data/ built by prep_libri.py
-import numpy as np,pickle,sys
+import numpy as np,json,sys
 sys.path.insert(0,FUSION)
 import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
 from vadlib import frame_mask
-clips=pickle.load(open('e_set.pkl','rb'))
+clips=json.load(open('e_set.json','r'))
+for c in clips:
+    c['e10']=np.array(c['e10'],dtype=np.float64)
+    if 'sil' in c: c['sil']=np.array(c['sil'],dtype=np.float32)
+    if 'z' in c:
+        for k in c['z']: c['z'][k]=np.array(c['z'][k],dtype=np.float32)
+
 fig,axs=plt.subplots(1,2,figsize=(13,4.6),sharey=True)
 stats={}
 for ax,m in zip(axs,['redux','ultra']):

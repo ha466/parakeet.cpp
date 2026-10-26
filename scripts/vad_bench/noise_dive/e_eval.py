@@ -1,11 +1,17 @@
 import os
 FUSION=os.environ.get('FUSION_DIR','../fusion')  # scripts/vad_bench/fusion with data/ built by prep_libri.py
-import numpy as np,pickle,json,sys
+import numpy as np,json,sys
 sys.path.insert(0,FUSION)
 import fl, rules
 from vadlib import sig
 GR=fl.GR
-clips=pickle.load(open('e_set.pkl','rb'))
+clips=json.load(open('e_set.json','r'))
+for c in clips:
+    c['e10']=np.array(c['e10'],dtype=np.float64)
+    if 'sil' in c: c['sil']=np.array(c['sil'],dtype=np.float32)
+    if 'z' in c:
+        for k in c['z']: c['z'][k]=np.array(c['z'][k],dtype=np.float32)
+
 def grid(c):
     n=int(round(len(c['e10'])))   # 10 ms cells
     return n
