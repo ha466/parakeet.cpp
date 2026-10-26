@@ -172,6 +172,17 @@ target_link_libraries(test_server_format PRIVATE parakeet)
 add_test(NAME test_server_format COMMAND test_server_format)
 set_tests_properties(test_server_format PROPERTIES SKIP_RETURN_CODE 77)
 
+find_package(ZLIB)
+if(ZLIB_FOUND)
+  add_executable(test_httplib_gzip test_httplib_gzip.cpp)
+  target_compile_definitions(test_httplib_gzip PRIVATE CPPHTTPLIB_ZLIB_SUPPORT)
+  target_include_directories(test_httplib_gzip PRIVATE
+      ${CMAKE_SOURCE_DIR}/examples/server)
+  target_link_libraries(test_httplib_gzip PRIVATE ZLIB::ZLIB)
+  add_test(NAME test_httplib_gzip COMMAND test_httplib_gzip)
+  set_tests_properties(test_httplib_gzip PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 add_executable(test_server_resolve test_server_resolve.cpp
                ${CMAKE_SOURCE_DIR}/examples/server/model_fetch.cpp)
 target_include_directories(test_server_resolve PRIVATE
