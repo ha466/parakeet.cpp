@@ -3889,8 +3889,8 @@ inline EncodingType encoding_type(const Request &req, const Response &res) {
 #endif
 
 #ifdef CPPHTTPLIB_ZLIB_SUPPORT
-  // TODO: 'Accept-Encoding' has gzip, not gzip;q=0
-  ret = s.find("gzip") != std::string::npos;
+  ret = s.find("gzip") != std::string::npos &&
+        s.find("gzip;q=0") == std::string::npos;
   if (ret) { return EncodingType::Gzip; }
 #endif
 
