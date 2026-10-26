@@ -7674,8 +7674,12 @@ inline bool ClientImpl::write_content_with_provider(Stream &strm,
   auto is_shutting_down = []() { return false; };
 
   if (req.is_chunked_content_provider_) {
-    // TODO: Brotli support
     std::unique_ptr<detail::compressor> compressor;
+#ifdef CPPHTTPLIB_BROTLI_SUPPORT
+    if (compress_) {
+      compressor = detail::make_unique<detail::brotli_compressor>();
+    } else
+#endif
 #ifdef CPPHTTPLIB_ZLIB_SUPPORT
     if (compress_) {
       compressor = detail::make_unique<detail::gzip_compressor>();
@@ -7838,15 +7842,32 @@ inline std::unique_ptr<Response> ClientImpl::send_with_content_provider(
     const std::string &content_type, Error &error) {
   if (!content_type.empty()) { req.set_header("Content-Type", content_type); }
 
+#ifdef CPPHTTPLIB_BROTLI_SUPPORT
+  if (compress_) {
+    req.set_header("Content-Encoding", "br");
+  } else
+#endif
 #ifdef CPPHTTPLIB_ZLIB_SUPPORT
-  if (compress_) { req.set_header("Content-Encoding", "gzip"); }
+  if (compress_) {
+    req.set_header("Content-Encoding", "gzip");
+  }
 #endif
 
+  std::unique_ptr<detail::compressor> compressor;
+#ifdef CPPHTTPLIB_BROTLI_SUPPORT
+  if (compress_ && !content_provider_without_length) {
+    compressor = detail::make_unique<detail::brotli_compressor>();
+  } else
+#endif
 #ifdef CPPHTTPLIB_ZLIB_SUPPORT
   if (compress_ && !content_provider_without_length) {
-    // TODO: Brotli support
-    detail::gzip_compressor compressor;
+    compressor = detail::make_unique<detail::gzip_compressor>();
+  } else
+#endif
+  {
+  }
 
+  if (compressor) {
     if (content_provider) {
       auto ok = true;
       size_t offset = 0;
@@ -7856,7 +7877,7 @@ inline std::unique_ptr<Response> ClientImpl::send_with_content_provider(
         if (ok) {
           auto last = offset + data_len == content_length;
 
-          auto ret = compressor.compress(
+          auto ret = compressor->compress(
               data, data_len, last,
               [&](const char *compressed_data, size_t compressed_data_len) {
                 req.body.append(compressed_data, compressed_data_len);
@@ -7879,17 +7900,16 @@ inline std::unique_ptr<Response> ClientImpl::send_with_content_provider(
         }
       }
     } else {
-      if (!compressor.compress(body, content_length, true,
-                               [&](const char *data, size_t data_len) {
-                                 req.body.append(data, data_len);
-                                 return true;
-                               })) {
+      if (!compressor->compress(body, content_length, true,
+                                [&](const char *data, size_t data_len) {
+                                  req.body.append(data, data_len);
+                                  return true;
+                                })) {
         error = Error::Compression;
         return nullptr;
       }
     }
   } else
-#endif
   {
     if (content_provider) {
       req.content_length_ = content_length;
