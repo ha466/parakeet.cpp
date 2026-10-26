@@ -3874,6 +3874,62 @@ inline bool can_compress_content_type(const std::string &content_type) {
   }
 }
 
+inline bool has_accept_encoding(const std::string &s,
+                                const std::string &encoding) {
+  size_t start = 0;
+  while (start < s.size()) {
+    auto comma_pos = s.find(',', start);
+    if (comma_pos == std::string::npos) {
+      comma_pos = s.size();
+    }
+    auto item = s.substr(start, comma_pos - start);
+    start = comma_pos + 1;
+
+    auto item_trimmed = detail::trim_copy(item);
+    if (item_trimmed.empty()) { continue; }
+
+    auto semi_pos = item_trimmed.find(';');
+    std::string coding =
+        (semi_pos == std::string::npos)
+            ? item_trimmed
+            : detail::trim_copy(item_trimmed.substr(0, semi_pos));
+
+    if (detail::case_ignore::equal(coding, encoding)) {
+      if (semi_pos != std::string::npos) {
+        auto params_str = item_trimmed.substr(semi_pos + 1);
+        size_t p_start = 0;
+        bool q_found = false;
+        double qval = 1.0;
+        while (p_start < params_str.size()) {
+          auto p_semi = params_str.find(';', p_start);
+          if (p_semi == std::string::npos) { p_semi = params_str.size(); }
+          auto param =
+              detail::trim_copy(params_str.substr(p_start, p_semi - p_start));
+          p_start = p_semi + 1;
+
+          auto eq_pos = param.find('=');
+          if (eq_pos != std::string::npos) {
+            auto key = detail::trim_copy(param.substr(0, eq_pos));
+            if (detail::case_ignore::equal(key, "q")) {
+              auto val_str = detail::trim_copy(param.substr(eq_pos + 1));
+              char *endptr = nullptr;
+              qval = std::strtod(val_str.c_str(), &endptr);
+              if (endptr != val_str.c_str()) {
+                q_found = true;
+              } else {
+                qval = 1.0;
+              }
+            }
+          }
+        }
+        if (q_found && qval == 0.0) { continue; }
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 inline EncodingType encoding_type(const Request &req, const Response &res) {
   auto ret =
       detail::can_compress_content_type(res.get_header_value("Content-Type"));
@@ -3883,15 +3939,11 @@ inline EncodingType encoding_type(const Request &req, const Response &res) {
   (void)(s);
 
 #ifdef CPPHTTPLIB_BROTLI_SUPPORT
-  // TODO: 'Accept-Encoding' has br, not br;q=0
-  ret = s.find("br") != std::string::npos;
-  if (ret) { return EncodingType::Brotli; }
+  if (has_accept_encoding(s, "br")) { return EncodingType::Brotli; }
 #endif
 
 #ifdef CPPHTTPLIB_ZLIB_SUPPORT
-  // TODO: 'Accept-Encoding' has gzip, not gzip;q=0
-  ret = s.find("gzip") != std::string::npos;
-  if (ret) { return EncodingType::Gzip; }
+  if (has_accept_encoding(s, "gzip")) { return EncodingType::Gzip; }
 #endif
 
   return EncodingType::None;
