@@ -5351,7 +5351,10 @@ inline bool expect_content(const Request &req) {
       req.method == "PRI" || req.method == "DELETE") {
     return true;
   }
-  // TODO: check if Content-Length is set
+  if (req.has_header("Content-Length") ||
+      is_chunked_transfer_encoding(req.headers)) {
+    return true;
+  }
   return false;
 }
 
