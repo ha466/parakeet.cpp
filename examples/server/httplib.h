@@ -1473,6 +1473,7 @@ protected:
   };
 
   virtual bool create_and_connect_socket(Socket &socket, Error &error);
+  virtual bool initialize_ssl(Socket &socket, Response &res, Error &error);
 
   // All of:
   //   shutdown_ssl
@@ -1977,6 +1978,7 @@ private:
   bool connect_with_proxy(Socket &sock, Response &res, bool &success,
                           Error &error);
   bool initialize_ssl(Socket &socket, Error &error);
+  bool initialize_ssl(Socket &socket, Response &res, Error &error) override;
 
   bool load_certs();
 
@@ -7390,6 +7392,11 @@ inline bool ClientImpl::create_and_connect_socket(Socket &socket,
   return true;
 }
 
+inline bool ClientImpl::initialize_ssl(Socket & /*socket*/, Response & /*res*/,
+                                       Error & /*error*/) {
+  return true;
+}
+
 inline void ClientImpl::shutdown_ssl(Socket & /*socket*/,
                                      bool /*shutdown_gracefully*/) {
   // If there are any requests in flight from threads other than us, then it's
@@ -7511,20 +7518,7 @@ inline bool ClientImpl::send_(Request &req, Response &res, Error &error) {
     if (!is_alive) {
       if (!create_and_connect_socket(socket_, error)) { return false; }
 
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-      // TODO: refactoring
-      if (is_ssl()) {
-        auto &scli = static_cast<SSLClient &>(*this);
-        if (!proxy_host_.empty() && proxy_port_ != -1) {
-          auto success = false;
-          if (!scli.connect_with_proxy(socket_, res, success, error)) {
-            return success;
-          }
-        }
-
-        if (!scli.initialize_ssl(socket_, error)) { return false; }
-      }
-#endif
+      if (!initialize_ssl(socket_, res, error)) { return false; }
     }
 
     // Mark the current socket as being in use so that it cannot be closed by
@@ -9369,6 +9363,20 @@ inline SSL_CTX *SSLClient::ssl_context() const { return ctx_; }
 
 inline bool SSLClient::create_and_connect_socket(Socket &socket, Error &error) {
   return is_valid() && ClientImpl::create_and_connect_socket(socket, error);
+}
+
+inline bool SSLClient::initialize_ssl(Socket &socket, Response &res,
+                                      Error &error) {
+  if (!proxy_host_.empty() && proxy_port_ != -1) {
+    auto success = false;
+    if (!connect_with_proxy(socket, res, success, error)) {
+      return success;
+    }
+  }
+
+  if (!initialize_ssl(socket, error)) { return false; }
+
+  return true;
 }
 
 // Assumes that socket_mutex_ is locked and that there are no requests in flight
