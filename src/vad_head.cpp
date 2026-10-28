@@ -57,8 +57,10 @@ std::vector<float> VadHead::run(const VadWeights& w, const VadVariant& v, const 
             for (int i = 0; i < D; ++i) acc += wr[i] * xr[i];
             h1[(size_t)t * H + o] = activate(v.act_proj, acc);
         }
+    // Bolt optimization: Pre-allocate scratch buffer h2 once outside the frame loop
+    // to avoid T dynamic heap allocations/deallocations per sequence.
+    std::vector<float> h2(H);
     for (int t = 0; t < T; ++t) {
-        std::vector<float> h2(H);
         for (int o = 0; o < H; ++o) {
             float acc = w.ctx_b[o];
             for (int kk = 0; kk < K; ++kk) {
