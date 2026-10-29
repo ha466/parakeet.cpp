@@ -21,14 +21,29 @@ void rel_pos_encoding(int T, int d_model, std::vector<float>& out) {
     }
 
     out.assign((size_t)P * d_model, 0.0f);
-    // positions run from +(T-1) down to -(T-1).
-    for (int p = 0; p < P; ++p) {
-        const double pos = (double)((T - 1) - p);   // (T-1), (T-2), ..., -(T-1)
-        float* row = out.data() + (size_t)p * d_model;
+    // Bolt optimization: positions run symmetrically from +(T-1) down to -(T-1).
+    // Center pos = 0 is at index center = T - 1.
+    // Leverage trig symmetry: sin(-x) = -sin(x), cos(-x) = cos(x), sin(0) = 0, cos(0) = 1.
+    // This halves std::sin/std::cos calls and eliminates trig calls for pos = 0.
+    const int center = T - 1;
+    float* row_zero = out.data() + (size_t)center * d_model;
+    for (int i = 0; i < half; ++i) {
+        row_zero[2 * i]     = 0.0f;
+        row_zero[2 * i + 1] = 1.0f;
+    }
+
+    for (int k = 1; k < T; ++k) {
+        float* row_pos = out.data() + (size_t)(center - k) * d_model;
+        float* row_neg = out.data() + (size_t)(center + k) * d_model;
+        const double dk = (double)k;
         for (int i = 0; i < half; ++i) {
-            const double arg = pos * div_term[i];
-            row[2 * i]     = (float)std::sin(arg);   // even dims
-            row[2 * i + 1] = (float)std::cos(arg);   // odd dims
+            const double arg = dk * div_term[i];
+            const float s = (float)std::sin(arg);
+            const float c = (float)std::cos(arg);
+            row_pos[2 * i]     = s;
+            row_pos[2 * i + 1] = c;
+            row_neg[2 * i]     = -s;
+            row_neg[2 * i + 1] = c;
         }
     }
 }
@@ -46,14 +61,35 @@ void local_rel_pos_encoding(int att_left, int att_right, int d_model,
     }
 
     out.assign((size_t)P * d_model, 0.0f);
-    // positions run from +att_left down to -att_right (NeMo arange(left,-right-1,-1)).
-    for (int p = 0; p < P; ++p) {
-        const double pos = (double)(att_left - p);
-        float* row = out.data() + (size_t)p * d_model;
+    // Bolt optimization: positions run from +att_left down to -att_right.
+    // Center pos = 0 is at index att_left.
+    // Leverage trig symmetry: sin(-x) = -sin(x), cos(-x) = cos(x), sin(0) = 0, cos(0) = 1.
+    const int center = att_left;
+    float* row_zero = out.data() + (size_t)center * d_model;
+    for (int i = 0; i < half; ++i) {
+        row_zero[2 * i]     = 0.0f;
+        row_zero[2 * i + 1] = 1.0f;
+    }
+
+    const int max_k = std::max(att_left, att_right);
+    for (int k = 1; k <= max_k; ++k) {
+        const bool has_pos = (k <= att_left);
+        const bool has_neg = (k <= att_right);
+        float* row_pos = has_pos ? (out.data() + (size_t)(center - k) * d_model) : nullptr;
+        float* row_neg = has_neg ? (out.data() + (size_t)(center + k) * d_model) : nullptr;
+        const double dk = (double)k;
         for (int i = 0; i < half; ++i) {
-            const double arg = pos * div_term[i];
-            row[2 * i]     = (float)std::sin(arg);
-            row[2 * i + 1] = (float)std::cos(arg);
+            const double arg = dk * div_term[i];
+            const float s = (float)std::sin(arg);
+            const float c = (float)std::cos(arg);
+            if (has_pos) {
+                row_pos[2 * i]     = s;
+                row_pos[2 * i + 1] = c;
+            }
+            if (has_neg) {
+                row_neg[2 * i]     = -s;
+                row_neg[2 * i + 1] = c;
+            }
         }
     }
 }
