@@ -5,7 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <set>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -78,12 +78,16 @@ bool is_special_token(const std::string& tok) {
     return false;
 }
 
-std::set<std::string> extract_punctuation(const std::vector<std::string>& pieces) {
-    std::set<std::string> punct;
+// Bolt optimization: Extract punctuation flags into a 256-element boolean lookup array
+// instead of allocating std::set<std::string>. All punctuation chars from NeMo's
+// extract_punctuation_from_vocab are single ASCII characters. This avoids heap allocations
+// and replaces O(log N) std::string comparisons with O(1) byte index checks.
+std::array<bool, 256> extract_punctuation_table(const std::vector<std::string>& pieces) {
+    std::array<bool, 256> punct{};
     for (const std::string& tok : pieces) {
         if (is_special_token(tok)) continue;
         for (unsigned char c : tok) {
-            if (is_ascii_punct(c)) punct.insert(std::string(1, (char)c));
+            if (is_ascii_punct(c)) punct[c] = true;
         }
     }
     return punct;
@@ -98,7 +102,8 @@ std::vector<Word> group_words(const std::vector<TokenInfo>& tokens,
     const int n = (int)tokens.size();
     if (n == 0) return words;
 
-    const std::set<std::string> punct = extract_punctuation(pieces);
+    // Bolt optimization: Stack-allocated O(1) punctuation lookup table.
+    const std::array<bool, 256> punct = extract_punctuation_table(pieces);
     const std::string DELIM = " "; // word delimiter (NeMo word_seperator default)
 
     auto piece_of = [&](int i) -> const std::string& {
@@ -108,7 +113,7 @@ std::vector<Word> group_words(const std::vector<TokenInfo>& tokens,
         return empty;
     };
     auto is_punct = [&](const std::string& s) {
-        return !s.empty() && s != DELIM && punct.count(s) > 0;
+        return s.size() == 1 && s != DELIM && punct[(unsigned char)s[0]];
     };
 
     // Per-token char offsets (NeMo char_offsets): text = decode_ids_to_str([id]),
@@ -133,8 +138,10 @@ std::vector<Word> group_words(const std::vector<TokenInfo>& tokens,
     // rule reproduces both heads' dumped baseline word offsets exactly.
     for (int i = 0; i < n; ++i) {
         if (!text[i].empty() && i > 0) {
-            std::string first(1, text[i][0]);
-            if (is_punct(first)) {
+            // Bolt optimization: Avoid constructing std::string first(1, text[i][0])
+            // and perform direct O(1) byte table check.
+            const unsigned char c = (unsigned char)text[i][0];
+            if (c != ' ' && punct[c]) {
                 start[i] = end[i - 1];
                 end[i]   = start[i];
             }
